@@ -128,27 +128,31 @@ impl Policy {
     }
 }
 
-/// Parse a comma separated glob list, ignoring commas inside `{a,b}` alternations.
-fn globs_from_env(var: &str) -> Res<GlobSet> {
+/// Read a comma separated list from an environment variable, ignoring commas
+/// inside `{a,b}` alternations.
+pub fn env_list(var: &str) -> Vec<String> {
     let value = env::var(var).unwrap_or_default();
-    let mut patterns = Vec::new();
+    let mut items = Vec::new();
     let (mut current, mut depth) = (String::new(), 0usize);
     for ch in value.chars() {
         match ch {
             '{' => depth += 1,
             '}' => depth = depth.saturating_sub(1),
             ',' | '\n' if depth == 0 => {
-                patterns.push(std::mem::take(&mut current));
+                items.push(std::mem::take(&mut current));
                 continue;
             }
             _ => {}
         }
         current.push(ch);
     }
-    patterns.push(current);
+    items.push(current);
+    items.iter().map(|i| i.trim().to_string()).filter(|i| !i.is_empty()).collect()
+}
 
+fn globs_from_env(var: &str) -> Res<GlobSet> {
     let mut builder = GlobSetBuilder::new();
-    for pattern in patterns.iter().map(|p| p.trim()).filter(|p| !p.is_empty()) {
+    for pattern in env_list(var) {
         let pattern = pattern.trim_end_matches('/');
         let glob = GlobBuilder::new(pattern)
             .literal_separator(true)

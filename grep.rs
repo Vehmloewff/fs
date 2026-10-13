@@ -6,7 +6,7 @@ use grep::searcher::{BinaryDetection, Searcher, SearcherBuilder, Sink, SinkConte
 use ignore::overrides::OverrideBuilder;
 
 use crate::output::{format_size, print_with_notices, truncate_bytes, MAX_BYTES, MAX_LINE_CHARS};
-use crate::policy::{Access, Policy};
+use crate::policy::{env_list, Access, Policy};
 use crate::walk::{display_path, walker};
 use crate::Res;
 
@@ -83,12 +83,17 @@ pub fn run(
         .build();
 
     let mut walk = walker(policy, &root, Access::Read);
-    if let Some(glob) = &glob {
-        let overrides = OverrideBuilder::new(&root)
-            .add(glob)
-            .and_then(|b| b.build())
-            .map_err(|e| format!("invalid --glob: {e}"))?;
-        walk.overrides(overrides);
+    // --glob whitelists files; FS_GREP_IGNORE adds gitignore-style excludes.
+    let ignores = env_list("FS_GREP_IGNORE");
+    if glob.is_some() || !ignores.is_empty() {
+        let mut overrides = OverrideBuilder::new(&root);
+        if let Some(glob) = &glob {
+            overrides.add(glob).map_err(|e| format!("invalid --glob: {e}"))?;
+        }
+        for pattern in &ignores {
+            overrides.add(&format!("!{pattern}")).map_err(|e| format!("FS_GREP_IGNORE: {e}"))?;
+        }
+        walk.overrides(overrides.build().map_err(|e| format!("FS_GREP_IGNORE: {e}"))?);
     }
 
     let limit = limit.max(1);

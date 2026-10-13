@@ -30,7 +30,7 @@ fs find '**/*.json'
 
 Run `fs <command> --help` for every option.
 
-## Guardrails
+## Configuration
 
 | Variable | Effect |
 | --- | --- |
@@ -38,6 +38,7 @@ Run `fs <command> --help` for every option.
 | `FS_DENIED_FILES` | Globs that can't be read or written |
 | `FS_DENIED_READ_FILES` | Globs that can't be read |
 | `FS_DENIED_WRITE_FILES` | Globs that can't be written, moved or removed |
+| `FS_GREP_IGNORE` | Globs `fs grep` skips, on top of `.gitignore` |
 
 ```sh
 export FS_ROOT_DIR=~/code/my-project
