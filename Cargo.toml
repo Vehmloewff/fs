@@ -1,0 +1,21 @@
+[package]
+name = "fs"
+version = "0.1.0"
+edition = "2021"
+description = "File system utilities with a friendly CLI for humans and agents"
+license = "MIT"
+
+[[bin]]
+name = "fs"
+path = "main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+globset = "0.4"
+grep = "0.4"
+ignore = "0.4"
+unicode-normalization = "0.1.25"
+
+[profile.release]
+strip = true
+lto = true
