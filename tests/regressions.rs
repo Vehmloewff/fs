@@ -412,6 +412,22 @@ fn edit_keeps_uniform_crlf_unchanged() {
 }
 
 #[test]
+fn find_matches_pattern_with_trailing_slash() {
+    let temp = TempDir::new();
+    fs::create_dir(temp.path().join("src")).unwrap();
+
+    let result = output(&["find", "src/", temp.path().to_str().unwrap()]);
+    let stdout = String::from_utf8_lossy(&result.stdout);
+
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(stdout, format!("{}/src/\n", temp.path().display()));
+}
+
+#[test]
 fn read_treats_zero_limit_as_one_line() {
     let temp = TempDir::new();
     let file = temp.path().join("file.txt");

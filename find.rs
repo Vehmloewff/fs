@@ -13,7 +13,9 @@ pub fn run(policy: &Arc<Policy>, pattern: &str, raw: &str, limit: usize) -> Res<
     if !root.is_dir() {
         return Err(format!("{raw}: not a directory"));
     }
-    let matcher = GlobBuilder::new(pattern.trim_start_matches("./"))
+    // A trailing '/' or '/.' would never match an entry's name; drop it.
+    let pattern = pattern.trim_start_matches("./").trim_end_matches('/').trim_end_matches("/.");
+    let matcher = GlobBuilder::new(pattern)
         .literal_separator(true)
         .build()
         .map_err(|e| format!("invalid pattern: {e}"))?
