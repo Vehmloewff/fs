@@ -28,7 +28,7 @@ pub fn run(policy: &Policy, raw: &str, offset: Option<usize>, limit: Option<usiz
     if start >= total {
         return Err(format!("{raw}: offset {} is beyond end of file ({total} lines total)", start + 1));
     }
-    let end = limit.map_or(total, |l| start.saturating_add(l).min(total));
+    let end = limit.map_or(total, |l| start.saturating_add(l.max(1)).min(total));
 
     let mut out = String::new();
     let mut shown = 0;

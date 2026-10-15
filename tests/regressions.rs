@@ -412,6 +412,24 @@ fn edit_keeps_uniform_crlf_unchanged() {
 }
 
 #[test]
+fn read_treats_zero_limit_as_one_line() {
+    let temp = TempDir::new();
+    let file = temp.path().join("file.txt");
+    fs::write(&file, "first\nsecond\n").unwrap();
+
+    let result = output(&["read", file.to_str().unwrap(), "--limit", "0"]);
+    let stdout = String::from_utf8_lossy(&result.stdout);
+
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(stdout.starts_with("first\n"));
+    assert!(stdout.contains("Use --offset 2 to continue"));
+}
+
+#[test]
 fn edit_inserting_lines_on_unterminated_last_line_keeps_line_breaks() {
     let temp = TempDir::new();
     for (before, after) in [("a\nb", "a\nb\nc"), ("a\r\nb", "a\r\nb\r\nc"), ("b", "b\nc")] {
