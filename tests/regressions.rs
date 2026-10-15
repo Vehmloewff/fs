@@ -164,6 +164,55 @@ fn move_into_source_directory_fails_without_creating_parents() {
     assert!(!source.join("sub").exists());
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn cross_device_move_preserves_symlinks() {
+    use std::os::unix::fs::{symlink, MetadataExt};
+
+    let shared_memory = Path::new("/dev/shm");
+    if !shared_memory.is_dir() {
+        return;
+    }
+
+    let temp = TempDir::new();
+    let target = temp.path().join("target");
+    let link = temp.path().join("link");
+    fs::write(&target, "target contents").unwrap();
+    symlink(&target, &link).unwrap();
+
+    let shared_dir = shared_memory.join(format!(
+        "fs-regression-{}-{}",
+        std::process::id(),
+        NEXT_ID.fetch_add(1, Ordering::Relaxed)
+    ));
+    fs::create_dir(&shared_dir).unwrap();
+    let destination = shared_dir.join("link");
+
+    if fs::metadata(temp.path()).unwrap().dev() == fs::metadata(shared_memory).unwrap().dev() {
+        fs::remove_dir_all(shared_dir).unwrap();
+        return;
+    }
+
+    let result = output(&[
+        "move",
+        link.to_str().unwrap(),
+        destination.to_str().unwrap(),
+    ]);
+
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(fs::symlink_metadata(&destination)
+        .unwrap()
+        .file_type()
+        .is_symlink());
+    assert_eq!(fs::read_link(&destination).unwrap(), target);
+    assert!(!link.exists());
+    fs::remove_dir_all(shared_dir).unwrap();
+}
+
 #[test]
 fn move_requires_read_access_to_source() {
     let temp = TempDir::new();
