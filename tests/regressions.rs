@@ -210,6 +210,29 @@ fn fuzzy_edit_still_matches_nfkc_compatibility_characters() {
     assert_eq!(fs::read_to_string(file).unwrap(), "complete value\n");
 }
 
+#[test]
+fn read_saturates_large_line_limit_instead_of_panicking() {
+    let temp = TempDir::new();
+    let file = temp.path().join("file.txt");
+    fs::write(&file, "first\nsecond\n").unwrap();
+
+    let result = output(&[
+        "read",
+        file.to_str().unwrap(),
+        "--offset",
+        "2",
+        "--limit",
+        &usize::MAX.to_string(),
+    ]);
+
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&result.stdout), "second\n");
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn cross_device_move_preserves_symlinks() {
