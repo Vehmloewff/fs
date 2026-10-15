@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
@@ -33,6 +33,10 @@ fn fs_cmd(args: &[&str]) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_fs"));
     command.env_clear().args(args);
     command
+}
+
+fn output(args: &[&str]) -> Output {
+    fs_cmd(args).output().unwrap()
 }
 
 #[cfg(unix)]
@@ -142,6 +146,22 @@ fn deny_globs_apply_to_dangling_symlink_targets() {
 
     assert!(!result.status.success());
     assert!(!target.exists());
+}
+
+#[test]
+fn move_into_source_directory_fails_without_creating_parents() {
+    let temp = TempDir::new();
+    let source = temp.path().join("dir");
+    fs::create_dir(&source).unwrap();
+
+    let result = output(&[
+        "move",
+        source.to_str().unwrap(),
+        source.join("sub/new").to_str().unwrap(),
+    ]);
+
+    assert!(!result.status.success());
+    assert!(!source.join("sub").exists());
 }
 
 #[test]

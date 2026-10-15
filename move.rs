@@ -6,7 +6,10 @@ use crate::Res;
 pub fn run(policy: &Policy, raw_from: &str, raw_to: &str, force: bool) -> Res<bool> {
     let from = policy.resolve(raw_from)?;
     let to = policy.resolve(raw_to)?;
-    fs::symlink_metadata(&from).map_err(|e| format!("{raw_from}: {e}"))?;
+    let from_meta = fs::symlink_metadata(&from).map_err(|e| format!("{raw_from}: {e}"))?;
+    if to != from && to.starts_with(&from) && from_meta.is_dir() {
+        return Err(format!("{raw_to}: cannot move a directory into itself"));
+    }
     // Moving exposes the contents under a new name, so the source must be readable too.
     policy.check_tree(raw_from, &from, Access::Read)?;
     policy.check_tree(raw_from, &from, Access::Write)?;
