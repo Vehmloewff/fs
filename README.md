@@ -4,7 +4,7 @@ File system utilities that work just as well for agents as they do for humans.
 
 Coding agents spend most of their time reading, searching and editing files, usually through `cat`, `sed`, `grep` and `find`. Those tools were never designed for it: output floods the context window, edits are fragile, and nothing stops an agent from wandering into `.env` or out of the project. `fs` is one small binary with a plain CLI that fixes that.
 
-- **Output that fits.** Long files and big searches are truncated with a note saying exactly how to continue.
+- **Output that fits.** Long files and big searches are truncated with a note explaining the limit and how to continue when possible. A single overlong line is clipped; line offsets cannot resume within it.
 - **Safe edits.** `fs edit` replaces one exact, unique piece of text, and refuses when the match is missing or ambiguous.
 - **Guardrails.** Confine every command to a directory, and deny reads or writes to files you choose.
 - **Quiet.** Commands that change things print nothing when they succeed.

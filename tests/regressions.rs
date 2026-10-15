@@ -233,6 +233,20 @@ fn read_saturates_large_line_limit_instead_of_panicking() {
     assert_eq!(String::from_utf8_lossy(&result.stdout), "second\n");
 }
 
+#[test]
+fn read_does_not_offer_line_offset_for_truncated_single_line() {
+    let temp = TempDir::new();
+    let file = temp.path().join("file.txt");
+    fs::write(&file, "x".repeat(60 * 1024)).unwrap();
+
+    let result = output(&["read", file.to_str().unwrap()]);
+    let stdout = String::from_utf8_lossy(&result.stdout);
+
+    assert!(result.status.success());
+    assert!(stdout.contains("--offset cannot continue within a line"));
+    assert!(!stdout.contains("Use --offset 2 to continue"));
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn cross_device_move_preserves_symlinks() {

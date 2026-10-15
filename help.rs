@@ -8,7 +8,7 @@ Conventions:
   Paths are relative to the current directory; '~' expands to your home.
   write, edit, move and remove print nothing when they succeed.
   Errors print to stderr as 'fs: <message>' and exit with code 1.
-  Truncated output ends with a [bracketed notice] saying how to get the rest.
+  Truncated output ends with a [bracketed notice] describing the limit and continuation when available.
   Put '--' before a pattern or path that starts with '-'.";
 
 const ENVIRONMENT: &str = "\

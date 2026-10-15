@@ -37,8 +37,9 @@ enum Command {
     /// Read a text file
     #[command(after_help = "\
 Prints the file as is. Output is truncated to 2000 lines or 50KB,
-whichever comes first; a notice at the end then says which --offset
-continues. Directories and binary files are refused.
+whichever comes first; notices give a line offset to continue when possible.
+A single overlong line is clipped and cannot be continued with --offset.
+Directories and binary files are refused.
 
 Examples:
   fs read main.rs

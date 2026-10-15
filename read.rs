@@ -47,9 +47,8 @@ pub fn run(policy: &Policy, raw: &str, offset: Option<usize>, limit: Option<usiz
                 }
                 out.push_str(&line[..cut]);
                 out.push('\n');
-                let next = start + 2;
                 let notice = format!(
-                    "Line {} is {}, truncated to {}. Use --offset {next} to continue",
+                    "Line {} is {}, truncated to {}; --offset cannot continue within a line",
                     start + 1,
                     format_size(line.len()),
                     format_size(MAX_BYTES)
