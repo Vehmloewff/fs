@@ -87,20 +87,34 @@ impl Policy {
             return false;
         }
         let deny_base = self.root.as_ref().unwrap_or(&self.base);
-        // Check the path and each of its ancestors so denying a directory denies its contents.
-        for p in path.ancestors() {
-            if p == deny_base {
-                break;
+        let mut paths = vec![path.to_path_buf()];
+        if !matches!(access, Access::List) {
+            match canonicalize_target(path, 40) {
+                Some(real) if real != path => paths.push(real),
+                Some(_) => {}
+                None if path.ancestors().any(|ancestor| {
+                    fs::symlink_metadata(ancestor).is_ok_and(|meta| meta.file_type().is_symlink())
+                }) => return true,
+                None => {}
             }
-            let mut candidates = vec![p.to_string_lossy().replace('\\', "/")];
-            if let Some(name) = p.file_name() {
-                candidates.push(name.to_string_lossy().into_owned());
-            }
-            if let Ok(rel) = p.strip_prefix(deny_base) {
-                candidates.push(rel.to_string_lossy().replace('\\', "/"));
-            }
-            if candidates.iter().any(|c| self.denied.is_match(c) || extra.is_match(c)) {
-                return true;
+        }
+        // Check both the supplied path and its resolved target. Check ancestors
+        // too, so denying a directory denies everything inside it.
+        for path in paths {
+            for p in path.ancestors() {
+                if p == deny_base {
+                    break;
+                }
+                let mut candidates = vec![p.to_string_lossy().replace('\\', "/")];
+                if let Some(name) = p.file_name() {
+                    candidates.push(name.to_string_lossy().into_owned());
+                }
+                if let Ok(rel) = p.strip_prefix(deny_base) {
+                    candidates.push(rel.to_string_lossy().replace('\\', "/"));
+                }
+                if candidates.iter().any(|c| self.denied.is_match(c) || extra.is_match(c)) {
+                    return true;
+                }
             }
         }
         false

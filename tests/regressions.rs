@@ -103,3 +103,43 @@ fn move_rejects_dangling_symlink_escape_before_creating_parents() {
     assert!(root.join("source").exists());
     assert!(!outside.join("escape").exists());
 }
+
+#[cfg(unix)]
+#[test]
+fn deny_globs_apply_to_symlink_targets() {
+    use std::os::unix::fs::symlink;
+
+    let temp = TempDir::new();
+    let root = temp.path().join("root");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(root.join("secret"), "classified").unwrap();
+    symlink("secret", root.join("alias")).unwrap();
+
+    let result = fs_cmd(&["read", root.join("alias").to_str().unwrap()])
+        .env("FS_ROOT_DIR", &root)
+        .env("FS_DENIED_FILES", "secret")
+        .output()
+        .unwrap();
+
+    assert!(!result.status.success());
+    assert!(!String::from_utf8_lossy(&result.stdout).contains("classified"));
+}
+
+#[cfg(unix)]
+#[test]
+fn deny_globs_apply_to_dangling_symlink_targets() {
+    use std::os::unix::fs::symlink;
+
+    let temp = TempDir::new();
+    let target = temp.path().join("secret");
+    let alias = temp.path().join("alias");
+    symlink(&target, &alias).unwrap();
+
+    let result = fs_cmd(&["write", alias.to_str().unwrap(), "payload"])
+        .env("FS_DENIED_WRITE_FILES", "secret")
+        .output()
+        .unwrap();
+
+    assert!(!result.status.success());
+    assert!(!target.exists());
+}
