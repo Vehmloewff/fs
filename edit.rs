@@ -104,10 +104,9 @@ pub fn run(policy: &Policy, raw: &str, old: &str, new: &str) -> Res<bool> {
         Some(rest) => ("\u{FEFF}", rest),
         None => ("", raw_text.as_str()),
     };
-    let crlf = text.find('\n').is_some_and(|i| i > 0 && text.as_bytes()[i - 1] == b'\r');
     let content = text.replace("\r\n", "\n").replace('\r', "\n");
-    let old = old.replace("\r\n", "\n");
-    let new = new.replace("\r\n", "\n");
+    let old = old.replace("\r\n", "\n").replace('\r', "\n");
+    let new = new.replace("\r\n", "\n").replace('\r', "\n");
     if old.is_empty() {
         return Err("--old must not be empty".into());
     }
@@ -123,13 +122,14 @@ pub fn run(policy: &Policy, raw: &str, old: &str, new: &str) -> Res<bool> {
         return Err(format!("found {count} occurrences of --old in {raw}. Add more context to make it unique"));
     }
 
-    let result = if let Some(start) = content.find(&old) {
-        format!("{}{new}{}", &content[..start], &content[start + old.len()..])
+    // The match region in content (LF-only) coordinates.
+    let (result, region) = if let Some(start) = content.find(&old) {
+        (format!("{}{new}{}", &content[..start], &content[start + old.len()..]), (start, start + old.len()))
     } else if let Some(start) = fuzzy_content.find(&fuzzy_old).filter(|_| !fuzzy_old.is_empty()) {
         let end = start + fuzzy_old.len();
         let (original_start, original_end) = original_match_span(&spans, start, end)
             .ok_or_else(|| format!("could not map --old back to {raw}"))?;
-        format!("{}{new}{}", &content[..original_start], &content[original_end..])
+        (format!("{}{new}{}", &content[..original_start], &content[original_end..]), (original_start, original_end))
     } else {
         return Err(format!("could not find --old in {raw}. It must match exactly, including whitespace and newlines"));
     };
@@ -137,7 +137,82 @@ pub fn run(policy: &Policy, raw: &str, old: &str, new: &str) -> Res<bool> {
     if result == content {
         return Err(format!("no changes made to {raw}: the replacement produced identical content"));
     }
-    let result = if crlf { result.replace('\n', "\r\n") } else { result };
+    let result = restore_endings(
+        &result,
+        &line_endings(text),
+        region,
+        new.len(),
+        content[..region.0].matches('\n').count(),
+        content[..region.1].matches('\n').count(),
+    );
     fs::write(&path, format!("{bom}{result}")).map_err(|e| format!("{raw}: {e}"))?;
     Ok(true)
+}
+
+/// The terminator of each line, in order, plus a final "" for a last line
+/// without one: "\n", "\r\n", "\r" or "".
+fn line_endings(text: &str) -> Vec<&str> {
+    let bytes = text.as_bytes();
+    let mut endings = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\r' if bytes.get(i + 1) == Some(&b'\n') => {
+                endings.push("\r\n");
+                i += 2;
+            }
+            b'\r' => {
+                endings.push("\r");
+                i += 1;
+            }
+            b'\n' => {
+                endings.push("\n");
+                i += 1;
+            }
+            _ => i += 1,
+        }
+    }
+    endings.push("");
+    endings
+}
+
+/// Put the original terminators back into LF-only `result`, where the
+/// replacement spans content bytes `region` and occupies `region.0
+/// ..region.0 + new_len`. A terminator that survives from the content keeps
+/// its own original ending, so untouched lines keep their exact bytes; a
+/// terminator introduced by the replacement takes the ending of the first
+/// line the match touched.
+fn restore_endings(
+    result: &str,
+    endings: &[&str],
+    region: (usize, usize),
+    new_len: usize,
+    first_region_line: usize,
+    suffix_first_line: usize,
+) -> String {
+    let region_end_in_result = region.0 + new_len;
+    // The last line of a file without a trailing newline has no ending of its
+    // own; lines inserted there take the previous line's ending instead.
+    let inserted = match endings[first_region_line] {
+        "" => first_region_line.checked_sub(1).map_or("\n", |i| endings[i]),
+        ending => ending,
+    };
+    let mut out = String::with_capacity(result.len() + 16);
+    let mut last = 0;
+    let (mut prefix_line, mut suffix_line) = (0usize, suffix_first_line);
+    for (pos, _) in result.match_indices('\n') {
+        out.push_str(&result[last..pos]);
+        if pos < region.0 {
+            out.push_str(endings[prefix_line]);
+            prefix_line += 1;
+        } else if pos < region_end_in_result {
+            out.push_str(inserted);
+        } else {
+            out.push_str(endings[suffix_line]);
+            suffix_line += 1;
+        }
+        last = pos + 1;
+    }
+    out.push_str(&result[last..]);
+    out
 }

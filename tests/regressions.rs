@@ -283,6 +283,116 @@ fn edit_does_not_refuse_unique_exact_match_that_is_fuzzy_ambiguous() {
 }
 
 #[test]
+fn edit_preserves_mixed_line_endings() {
+    let temp = TempDir::new();
+    let file = temp.path().join("file.txt");
+    fs::write(&file, b"a\nb\r\nc\n").unwrap();
+
+    let result = output(&[
+        "edit",
+        file.to_str().unwrap(),
+        "--old",
+        "b",
+        "--new",
+        "B",
+    ]);
+
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(fs::read(&file).unwrap(), b"a\nB\r\nc\n");
+}
+
+#[test]
+fn edit_keeps_crlf_when_replacement_spans_lines() {
+    let temp = TempDir::new();
+    let file = temp.path().join("file.txt");
+    fs::write(&file, b"a\r\nb\r\nc\r\n").unwrap();
+
+    let result = output(&[
+        "edit",
+        file.to_str().unwrap(),
+        "--old",
+        "b\nc",
+        "--new",
+        "x",
+    ]);
+
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(fs::read(&file).unwrap(), b"a\r\nx\r\n");
+}
+
+#[test]
+fn edit_gives_inserted_lines_the_first_matched_line_ending() {
+    let temp = TempDir::new();
+    let file = temp.path().join("file.txt");
+    fs::write(&file, b"a\r\nb\r\nc\r\n").unwrap();
+
+    let result = output(&[
+        "edit",
+        file.to_str().unwrap(),
+        "--old",
+        "b",
+        "--new",
+        "x\ny",
+    ]);
+
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(fs::read(&file).unwrap(), b"a\r\nx\r\ny\r\nc\r\n");
+}
+
+#[test]
+fn edit_keeps_uniform_crlf_unchanged() {
+    let temp = TempDir::new();
+    let file = temp.path().join("file.txt");
+    fs::write(&file, b"a\r\nb\r\nc\r\n").unwrap();
+
+    let result = output(&[
+        "edit",
+        file.to_str().unwrap(),
+        "--old",
+        "b",
+        "--new",
+        "B",
+    ]);
+
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(fs::read(&file).unwrap(), b"a\r\nB\r\nc\r\n");
+}
+
+#[test]
+fn edit_inserting_lines_on_unterminated_last_line_keeps_line_breaks() {
+    let temp = TempDir::new();
+    for (before, after) in [("a\nb", "a\nb\nc"), ("a\r\nb", "a\r\nb\r\nc"), ("b", "b\nc")] {
+        let file = temp.path().join("file.txt");
+        fs::write(&file, before).unwrap();
+
+        let result = output(&["edit", file.to_str().unwrap(), "--old", "b", "--new", "b\nc"]);
+
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert_eq!(fs::read_to_string(&file).unwrap(), after);
+    }
+}
+
+#[test]
 fn move_requires_read_access_to_source() {
     let temp = TempDir::new();
     fs::write(temp.path().join("key.pem"), "secret").unwrap();
