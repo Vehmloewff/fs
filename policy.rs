@@ -63,9 +63,14 @@ impl Policy {
             _ => canonicalize_existing(&path),
         };
         if let Some(root) = &self.root {
-            let real = path.canonicalize().unwrap_or_else(|_| path.clone());
-            if !real.starts_with(root) {
-                return Err(format!("{raw}: outside of FS_ROOT_DIR ({})", root.display()));
+            match canonicalize_target(&path, 40) {
+                Some(real) if !real.starts_with(root) => {
+                    return Err(format!("{raw}: outside of FS_ROOT_DIR ({})", root.display()));
+                }
+                Some(_) => {}
+                None => {
+                    return Err(format!("{raw}: cannot verify path is inside FS_ROOT_DIR ({})", root.display()));
+                }
             }
         }
         Ok(path)
@@ -205,5 +210,37 @@ fn canonicalize_existing(path: &Path) -> PathBuf {
             }
             _ => return path.to_path_buf(),
         }
+    }
+}
+
+/// Resolve existing symlinks, including dangling links, then append any
+/// nonexistent suffix to its canonical parent. `None` means a link cycle,
+/// unreadable link target, or unresolved `..`, so callers enforcing policy
+/// must fail closed.
+fn canonicalize_target(path: &Path, links_left: usize) -> Option<PathBuf> {
+    if let Ok(real) = path.canonicalize() {
+        return Some(real);
+    }
+    if links_left == 0 {
+        return None;
+    }
+    for ancestor in path.ancestors() {
+        if !fs::symlink_metadata(ancestor).is_ok_and(|meta| meta.file_type().is_symlink()) {
+            continue;
+        }
+        let target = fs::read_link(ancestor).ok()?;
+        let target = if target.is_absolute() {
+            target
+        } else {
+            ancestor.parent()?.join(target)
+        };
+        let suffix = path.strip_prefix(ancestor).ok()?;
+        return canonicalize_target(&target.join(suffix), links_left - 1);
+    }
+    let unresolved = canonicalize_existing(path);
+    if unresolved.components().any(|component| matches!(component, Component::ParentDir)) {
+        None
+    } else {
+        Some(unresolved)
     }
 }
