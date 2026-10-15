@@ -164,6 +164,52 @@ fn move_into_source_directory_fails_without_creating_parents() {
     assert!(!source.join("sub").exists());
 }
 
+#[test]
+fn fuzzy_edit_preserves_unmatched_unicode_bytes() {
+    let temp = TempDir::new();
+    let file = temp.path().join("file.txt");
+    fs::write(&file, "ﬁnished smart—dash tail\n").unwrap();
+
+    let result = output(&[
+        "edit",
+        file.to_str().unwrap(),
+        "--old",
+        "smart-dash",
+        "--new",
+        "done",
+    ]);
+
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(fs::read_to_string(file).unwrap(), "ﬁnished done tail\n");
+}
+
+#[test]
+fn fuzzy_edit_still_matches_nfkc_compatibility_characters() {
+    let temp = TempDir::new();
+    let file = temp.path().join("file.txt");
+    fs::write(&file, "ﬁnished cafe\u{301} value\n").unwrap();
+
+    let result = output(&[
+        "edit",
+        file.to_str().unwrap(),
+        "--old",
+        "finished café",
+        "--new",
+        "complete",
+    ]);
+
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(fs::read_to_string(file).unwrap(), "complete value\n");
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn cross_device_move_preserves_symlinks() {

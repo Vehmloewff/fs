@@ -1,45 +1,92 @@
 use std::fs;
 
 use unicode_normalization::UnicodeNormalization;
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::policy::{Access, Policy};
 use crate::Res;
 
-/// Normalize text for fuzzy edit matching: NFKC, strip trailing whitespace
-/// from each line, and map smart quotes, Unicode dashes and special spaces to
-/// ASCII.
-fn normalize_fuzzy(text: &str) -> String {
-    text.nfkc()
-        .collect::<String>()
-        .split('\n')
-        .map(|line| {
-            line.trim_end()
-                .chars()
-                .map(|c| match c {
-                    '\u{2018}' | '\u{2019}' | '\u{201A}' | '\u{201B}' => '\'',
-                    '\u{201C}' | '\u{201D}' | '\u{201E}' | '\u{201F}' => '"',
-                    '\u{2010}'..='\u{2015}' | '\u{2212}' => '-',
-                    '\u{00A0}' | '\u{2002}'..='\u{200A}' | '\u{202F}' | '\u{205F}' | '\u{3000}' => ' ',
-                    c => c,
-                })
-                .collect::<String>()
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+fn normalize_char(c: char) -> char {
+    match c {
+        '\u{2018}' | '\u{2019}' | '\u{201A}' | '\u{201B}' => '\'',
+        '\u{201C}' | '\u{201D}' | '\u{201E}' | '\u{201F}' => '"',
+        '\u{2010}'..='\u{2015}' | '\u{2212}' => '-',
+        '\u{00A0}' | '\u{2002}'..='\u{200A}' | '\u{202F}' | '\u{205F}' | '\u{3000}' => ' ',
+        c => c,
+    }
 }
 
-/// Byte spans of each line, including its trailing newline.
-fn line_spans(text: &str) -> Vec<(usize, usize)> {
+/// Normalize only the documented fuzzy differences. Keep a source span for
+/// every normalized character so replacement preserves all unmatched bytes.
+fn normalize_fuzzy_with_spans(text: &str) -> (String, Vec<Span>) {
+    let mut normalized = String::new();
     let mut spans = Vec::new();
-    let mut start = 0;
-    for (i, _) in text.match_indices('\n') {
-        spans.push((start, i + 1));
-        start = i + 1;
+    let mut original_start = 0;
+    let mut lines = text.split('\n').peekable();
+
+    while let Some(line) = lines.next() {
+        let normalized_line_start = normalized.len();
+        for (offset, grapheme) in line.grapheme_indices(true) {
+            let original_end = original_start + offset + grapheme.len();
+            for normalized_char in grapheme.nfkc().map(normalize_char) {
+                let normalized_start = normalized.len();
+                normalized.push(normalized_char);
+                spans.push(Span {
+                    normalized_start,
+                    normalized_end: normalized.len(),
+                    original_start: original_start + offset,
+                    original_end,
+                });
+            }
+        }
+        let trimmed_len = normalized[normalized_line_start..].trim_end().len();
+        normalized.truncate(normalized_line_start + trimmed_len);
+        while spans
+            .last()
+            .is_some_and(|span| span.normalized_end > normalized.len())
+        {
+            spans.pop();
+        }
+
+        if lines.peek().is_some() {
+            let normalized_start = normalized.len();
+            normalized.push('\n');
+            spans.push(Span {
+                normalized_start,
+                normalized_end: normalized.len(),
+                original_start: original_start + line.len(),
+                original_end: original_start + line.len() + 1,
+            });
+            original_start += line.len() + 1;
+        }
     }
-    if start < text.len() {
-        spans.push((start, text.len()));
-    }
-    spans
+    (normalized, spans)
+}
+
+fn normalize_line(text: &str) -> String {
+    text.graphemes(true)
+        .flat_map(|grapheme| grapheme.nfkc())
+        .map(normalize_char)
+        .collect::<String>()
+        .trim_end()
+        .to_string()
+}
+
+fn normalize_fuzzy(text: &str) -> String {
+    text.split('\n').map(normalize_line).collect::<Vec<_>>().join("\n")
+}
+
+struct Span {
+    normalized_start: usize,
+    normalized_end: usize,
+    original_start: usize,
+    original_end: usize,
+}
+
+fn original_match_span(spans: &[Span], start: usize, end: usize) -> Option<(usize, usize)> {
+    let first = spans.iter().find(|span| span.normalized_start == start)?;
+    let last = spans.iter().find(|span| span.normalized_end == end)?;
+    Some((first.original_start, last.original_end))
 }
 
 pub fn run(policy: &Policy, raw: &str, old: &str, new: &str) -> Res<bool> {
@@ -65,7 +112,7 @@ pub fn run(policy: &Policy, raw: &str, old: &str, new: &str) -> Res<bool> {
         return Err("--old must not be empty".into());
     }
 
-    let fuzzy_content = normalize_fuzzy(&content);
+    let (fuzzy_content, spans) = normalize_fuzzy_with_spans(&content);
     let fuzzy_old = normalize_fuzzy(&old);
     // Whitespace-only text normalizes to nothing, so it can only match exactly.
     let count = if fuzzy_old.is_empty() { content.matches(&old).count() } else { fuzzy_content.matches(&fuzzy_old).count() };
@@ -76,24 +123,10 @@ pub fn run(policy: &Policy, raw: &str, old: &str, new: &str) -> Res<bool> {
     let result = if let Some(start) = content.find(&old) {
         format!("{}{new}{}", &content[..start], &content[start + old.len()..])
     } else if let Some(start) = fuzzy_content.find(&fuzzy_old).filter(|_| !fuzzy_old.is_empty()) {
-        // Rewrite only the lines the match touches from the normalized text and
-        // copy every other line from the original byte for byte.
-        let base_lines = line_spans(&fuzzy_content);
-        let orig_lines = line_spans(&content);
-        if base_lines.len() != orig_lines.len() {
-            return Err(format!("could not find --old in {raw}. It must match exactly, including whitespace and newlines"));
-        }
         let end = start + fuzzy_old.len();
-        let line_of = |offset: usize| base_lines.iter().position(|&(s, e)| offset >= s && offset < e).unwrap_or(base_lines.len() - 1);
-        let (first, last) = (line_of(start), line_of(end - 1));
-        let (gs, ge) = (base_lines[first].0, base_lines[last].1);
-        format!(
-            "{}{}{new}{}{}",
-            &content[..orig_lines[first].0],
-            &fuzzy_content[gs..start],
-            &fuzzy_content[end..ge],
-            &content[orig_lines[last].1..]
-        )
+        let (original_start, original_end) = original_match_span(&spans, start, end)
+            .ok_or_else(|| format!("could not map --old back to {raw}"))?;
+        format!("{}{new}{}", &content[..original_start], &content[original_end..])
     } else {
         return Err(format!("could not find --old in {raw}. It must match exactly, including whitespace and newlines"));
     };
