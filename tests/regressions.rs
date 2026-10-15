@@ -143,3 +143,19 @@ fn deny_globs_apply_to_dangling_symlink_targets() {
     assert!(!result.status.success());
     assert!(!target.exists());
 }
+
+#[test]
+fn move_requires_read_access_to_source() {
+    let temp = TempDir::new();
+    fs::write(temp.path().join("key.pem"), "secret").unwrap();
+
+    let result = fs_cmd(&["move", "key.pem", "key.txt"])
+        .current_dir(temp.path())
+        .env("FS_DENIED_READ_FILES", "*.pem")
+        .output()
+        .unwrap();
+
+    assert!(!result.status.success());
+    assert!(temp.path().join("key.pem").exists());
+    assert!(!temp.path().join("key.txt").exists());
+}
