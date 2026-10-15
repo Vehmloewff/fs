@@ -114,8 +114,11 @@ pub fn run(policy: &Policy, raw: &str, old: &str, new: &str) -> Res<bool> {
 
     let (fuzzy_content, spans) = normalize_fuzzy_with_spans(&content);
     let fuzzy_old = normalize_fuzzy(&old);
-    // Whitespace-only text normalizes to nothing, so it can only match exactly.
-    let count = if fuzzy_old.is_empty() { content.matches(&old).count() } else { fuzzy_content.matches(&fuzzy_old).count() };
+    // An exact match wins: only count fuzzy matches when --old does not
+    // appear exactly, so normalization can never make a unique exact match
+    // look ambiguous.
+    let exact_count = content.matches(&old).count();
+    let count = if exact_count > 0 || fuzzy_old.is_empty() { exact_count } else { fuzzy_content.matches(&fuzzy_old).count() };
     if count > 1 {
         return Err(format!("found {count} occurrences of --old in {raw}. Add more context to make it unique"));
     }

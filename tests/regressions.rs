@@ -260,6 +260,29 @@ fn cross_device_move_preserves_symlinks() {
 }
 
 #[test]
+fn edit_does_not_refuse_unique_exact_match_that_is_fuzzy_ambiguous() {
+    let temp = TempDir::new();
+    let file = temp.path().join("file.txt");
+    fs::write(&file, "foo \u{2014} bar\nx\nfoo - bar\n").unwrap();
+
+    let result = output(&[
+        "edit",
+        file.to_str().unwrap(),
+        "--old",
+        "foo - bar",
+        "--new",
+        "REPLACED",
+    ]);
+
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(fs::read_to_string(file).unwrap(), "foo \u{2014} bar\nx\nREPLACED\n");
+}
+
+#[test]
 fn move_requires_read_access_to_source() {
     let temp = TempDir::new();
     fs::write(temp.path().join("key.pem"), "secret").unwrap();
