@@ -478,3 +478,25 @@ fn move_requires_read_access_to_source() {
     assert!(temp.path().join("key.pem").exists());
     assert!(!temp.path().join("key.txt").exists());
 }
+
+#[test]
+fn remove_skips_paths_inside_an_earlier_target() {
+    let temp = TempDir::new();
+    let dir = temp.path().join("dir");
+    fs::create_dir(&dir).unwrap();
+    fs::write(dir.join("file"), "").unwrap();
+    fs::write(temp.path().join("other"), "").unwrap();
+
+    let result = fs_cmd(&["remove", "dir", "dir/file", "other", "other", "--recursive"])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(!dir.exists());
+    assert!(!temp.path().join("other").exists());
+}
